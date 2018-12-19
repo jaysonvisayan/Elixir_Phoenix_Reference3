@@ -1,0 +1,69 @@
+before_script:
+  - export API_VERSION=2.3.3
+  - mix deps.get
+  - mix compile
+
+cache:
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+  - deps/
+  - _build/
+
+stages:
+  - test
+  - build
+  - deploy
+  - migrate
+
+test:
+  stage: test
+  tags:
+    - test
+  only:
+    - branches
+  script:
+    - MIX_ENV=test mix ecto.reset
+    - MIX_ENV=test mix test
+    - mix scan.all
+
+# IST
+build-api:
+  stage: build
+  environment:
+    name: ist
+    url: https://urg-api-ist.medilink.com.ph
+  only:
+    - ist/api
+  tags:
+    - builder
+  script:
+    - git branch -f master HEAD
+    - cd apps/api
+    - mix edeliver build release
+
+deploy-api to ist:
+  stage: deploy
+  environment:
+    name: ist
+    url: https://urg-api-ist.medilink.com.ph
+  tags:
+    - builder
+  only:
+    - ist/api
+  script:
+    - cd apps/api
+    - mix edeliver deploy release to staging --version=${API_VERSION}
+    - ssh medi@172.16.45.7 services/v2/restart-urg-service.sh
+
+migrate-api ist:
+  stage: migrate
+  environment:
+    name: ist
+    url: https://urg-api-ist.medilink.com.ph
+  tags:
+    - builder
+  only:
+    - ist/api
+  script:
+    - source /home/gitlab-runner/v2/migrate-urg-ist.env
+    - MIX_ENV=prod mix ecto.setup
